@@ -1,0 +1,79 @@
+name: wrappr-build
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: Wrappr job id
+        required: true
+        type: string
+      url:
+        description: Website URL
+        required: true
+        type: string
+      app_name:
+        description: App display name
+        required: true
+        type: string
+      platforms:
+        description: Comma-separated platform list (windows,linux,macos,android,ios)
+        required: true
+        type: string
+      icon_url:
+        description: Optional icon URL
+        required: false
+        type: string
+      bundle_id:
+        description: App bundle identifier
+        required: false
+        type: string
+        default: com.wrappr.app
+
+jobs:
+  build-macos:
+    if: contains(inputs.platforms, 'macos')
+    runs-on: macos-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g pake-cli
+      - run: pake "${{ inputs.url }}" --name "${{ inputs.app_name }}" --identifier "${{ inputs.bundle_id }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.job_id }}-macos
+          path: "*.dmg"
+          retention-days: 1
+
+  build-windows:
+    if: contains(inputs.platforms, 'windows')
+    runs-on: windows-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g pake-cli
+      - run: pake "${{ inputs.url }}" --name "${{ inputs.app_name }}" --identifier "${{ inputs.bundle_id }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.job_id }}-windows
+          path: "*.exe"
+          retention-days: 1
+
+  build-linux:
+    if: contains(inputs.platforms, 'linux')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g pake-cli
+      - run: pake "${{ inputs.url }}" --name "${{ inputs.app_name }}" --identifier "${{ inputs.bundle_id }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.job_id }}-linux
+          path: |
+            *.deb
+            *.AppImage
+          retention-days: 1
+
