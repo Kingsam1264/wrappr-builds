@@ -32,6 +32,9 @@ on:
 permissions:
   contents: write
 
+env:
+  CI: true
+
 jobs:
   build-linux:
     if: contains(inputs.platforms, 'linux')
@@ -272,9 +275,12 @@ jobs:
         working-directory: pake-src
         env:
           CI: true
+          CODE_SIGNING_ALLOWED: NO
+          CODE_SIGNING_REQUIRED: NO
+          CODE_SIGN_IDENTITY: ""
         run: |
           pnpm exec tauri ios init --ci
-          pnpm exec tauri ios build --ci
+          pnpm exec tauri ios build --ci -- CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
       - name: Collect iOS artifacts
         run: |
           mkdir -p out
