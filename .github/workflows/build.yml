@@ -29,6 +29,9 @@ on:
         type: string
         default: com.wrappr.app
 
+permissions:
+  contents: write
+
 jobs:
   build-linux:
     if: contains(inputs.platforms, 'linux')
@@ -46,7 +49,10 @@ jobs:
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf libayatana-appindicator3-dev libsoup-3.0-dev
+      - name: Download custom icon
+        if: inputs.icon_url != ''
+        run: curl -L -o app_icon.png "${{ inputs.icon_url }}"
       - uses: dtolnay/rust-toolchain@stable
       - name: Install Pake CLI
         run: npm install -g pnpm pake-cli
@@ -54,16 +60,26 @@ jobs:
         run: node scripts/gh-patch-pake.mjs pake-src "${{ inputs.url }}" "${{ inputs.app_name }}" "${{ inputs.bundle_id }}"
       - name: Build Linux app
         working-directory: pake-src
-        run: pnpm install && pake "${{ inputs.url }}" --name "${{ inputs.app_name }}" --identifier "${{ inputs.bundle_id }}" --targets deb,appimage
+        run: |
+          if [ -f "../app_icon.png" ]; then
+            pnpm install && pake "${{ inputs.url }}" --name "${{ inputs.app_name }}" --identifier "${{ inputs.bundle_id }}" --targets deb,appimage --icon ../app_icon.png
+          else
+            pnpm install && pake "${{ inputs.url }}" --name "${{ inputs.app_name }}" --identifier "${{ inputs.bundle_id }}" --targets deb,appimage
+          fi
       - name: Collect Linux artifacts
         run: |
           mkdir -p out
           find pake-src -maxdepth 3 \( -name '*.deb' -o -name '*.AppImage' \) -exec cp {} out/ \;
-      - uses: actions/upload-artifact@v4
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: ${{ inputs.job_id }}-linux
-          retention-days: 1
-          path: out/
+          tag_name: ${{ inputs.job_id }}
+          name: Build ${{ inputs.app_name }} (${{ inputs.job_id }})
+          draft: false
+          prerelease: false
+          files: out/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-windows:
     if: contains(inputs.platforms, 'windows')
@@ -78,6 +94,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Download custom icon
+        if: inputs.icon_url != ''
+        shell: pwsh
+        run: Invoke-WebRequest -Uri "${{ inputs.icon_url }}" -OutFile "app_icon.png"
       - uses: dtolnay/rust-toolchain@stable
       - name: Install Pake CLI
         run: npm install -g pnpm pake-cli
@@ -86,17 +106,27 @@ jobs:
       - name: Build Windows app
         working-directory: pake-src
         shell: pwsh
-        run: pnpm install; pake "${{ inputs.url }}" --name "${{ inputs.app_name }}" --identifier "${{ inputs.bundle_id }}"
+        run: |
+          if (Test-Path "../app_icon.png") {
+            pnpm install; pake "${{ inputs.url }}" --name "${{ inputs.app_name }}" --identifier "${{ inputs.bundle_id }}" --icon ../app_icon.png
+          } else {
+            pnpm install; pake "${{ inputs.url }}" --name "${{ inputs.app_name }}" --identifier "${{ inputs.bundle_id }}"
+          }
       - name: Collect Windows artifacts
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path out | Out-Null
           Get-ChildItem -Path pake-src -Recurse -Include *.exe,*.msi | Copy-Item -Destination out
-      - uses: actions/upload-artifact@v4
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: ${{ inputs.job_id }}-windows
-          retention-days: 1
-          path: out/
+          tag_name: ${{ inputs.job_id }}
+          name: Build ${{ inputs.app_name }} (${{ inputs.job_id }})
+          draft: false
+          prerelease: false
+          files: out/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-macos:
     if: contains(inputs.platforms, 'macos')
@@ -111,6 +141,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Download custom icon
+        if: inputs.icon_url != ''
+        run: curl -L -o app_icon.png "${{ inputs.icon_url }}"
       - uses: dtolnay/rust-toolchain@stable
       - name: Install Pake CLI
         run: npm install -g pnpm pake-cli
@@ -118,16 +151,26 @@ jobs:
         run: node scripts/gh-patch-pake.mjs pake-src "${{ inputs.url }}" "${{ inputs.app_name }}" "${{ inputs.bundle_id }}"
       - name: Build macOS app
         working-directory: pake-src
-        run: pnpm install && pake "${{ inputs.url }}" --name "${{ inputs.app_name }}" --identifier "${{ inputs.bundle_id }}" --targets dmg
+        run: |
+          if [ -f "../app_icon.png" ]; then
+            pnpm install && pake "${{ inputs.url }}" --name "${{ inputs.app_name }}" --identifier "${{ inputs.bundle_id }}" --targets dmg --icon ../app_icon.png
+          else
+            pnpm install && pake "${{ inputs.url }}" --name "${{ inputs.app_name }}" --identifier "${{ inputs.bundle_id }}" --targets dmg
+          fi
       - name: Collect macOS artifacts
         run: |
           mkdir -p out
           find pake-src -maxdepth 3 -name '*.dmg' -exec cp {} out/ \;
-      - uses: actions/upload-artifact@v4
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: ${{ inputs.job_id }}-macos
-          retention-days: 1
-          path: out/
+          tag_name: ${{ inputs.job_id }}
+          name: Build ${{ inputs.app_name }} (${{ inputs.job_id }})
+          draft: false
+          prerelease: false
+          files: out/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-android:
     if: contains(inputs.platforms, 'android')
@@ -142,6 +185,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Install pnpm
+        run: npm install -g pnpm
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -149,7 +194,10 @@ jobs:
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf libayatana-appindicator3-dev libsoup-3.0-dev
+      - name: Download custom icon
+        if: inputs.icon_url != ''
+        run: curl -L -o app_icon.png "${{ inputs.icon_url }}"
       - uses: dtolnay/rust-toolchain@stable
       - name: Add Android Rust targets
         run: |
@@ -162,24 +210,35 @@ jobs:
           local-cache: true
       - name: Patch Pake config
         run: node scripts/gh-patch-pake.mjs pake-src "${{ inputs.url }}" "${{ inputs.app_name }}" "${{ inputs.bundle_id }}"
+      - name: Install Pake dependencies
+        working-directory: pake-src
+        run: pnpm install
+      - name: Generate mobile icons
+        if: inputs.icon_url != ''
+        working-directory: pake-src
+        run: pnpm exec tauri icon ../app_icon.png
       - name: Build Android APK
         working-directory: pake-src
         env:
           NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
           CI: true
         run: |
-          pnpm install
           pnpm exec tauri android init --ci
           pnpm exec tauri android build
       - name: Collect Android artifacts
         run: |
           mkdir -p out
           find pake-src -type f \( -name '*.apk' -o -name '*.aab' \) -exec cp {} out/ \;
-      - uses: actions/upload-artifact@v4
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: ${{ inputs.job_id }}-android
-          retention-days: 1
-          path: out/
+          tag_name: ${{ inputs.job_id }}
+          name: Build ${{ inputs.app_name }} (${{ inputs.job_id }})
+          draft: false
+          prerelease: false
+          files: out/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-ios:
     if: contains(inputs.platforms, 'ios')
@@ -194,23 +253,39 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Install pnpm
+        run: npm install -g pnpm
       - uses: dtolnay/rust-toolchain@stable
+      - name: Download custom icon
+        if: inputs.icon_url != ''
+        run: curl -L -o app_icon.png "${{ inputs.icon_url }}"
       - name: Patch Pake config
         run: node scripts/gh-patch-pake.mjs pake-src "${{ inputs.url }}" "${{ inputs.app_name }}" "${{ inputs.bundle_id }}"
+      - name: Install Pake dependencies
+        working-directory: pake-src
+        run: pnpm install
+      - name: Generate mobile icons
+        if: inputs.icon_url != ''
+        working-directory: pake-src
+        run: pnpm exec tauri icon ../app_icon.png
       - name: Build iOS (simulator IPA)
         working-directory: pake-src
         env:
           CI: true
         run: |
-          pnpm install
           pnpm exec tauri ios init --ci
           pnpm exec tauri ios build --ci
       - name: Collect iOS artifacts
         run: |
           mkdir -p out
           find pake-src -type f \( -name '*.ipa' -o -name '*.app' \) | head -n 20 | while read f; do cp -R "$f" out/; done
-      - uses: actions/upload-artifact@v4
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: ${{ inputs.job_id }}-ios
-          retention-days: 1
-          path: out/
+          tag_name: ${{ inputs.job_id }}
+          name: Build ${{ inputs.app_name }} (${{ inputs.job_id }})
+          draft: false
+          prerelease: false
+          files: out/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
