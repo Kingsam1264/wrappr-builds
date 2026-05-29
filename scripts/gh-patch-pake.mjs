@@ -67,11 +67,7 @@ pub fn run() {
             let url_str = pake_json["windows"][0]["url"].as_str().unwrap_or("https://google.com");
             let url = tauri::WebviewUrl::External(url_str.parse().unwrap());
             
-            let mut builder = tauri::WebviewWindowBuilder::new(app, "main", url);
-            let title = pake_json["windows"][0]["title"].as_str().unwrap_or("Pake App");
-            builder = builder.title(title);
-            
-            let _ = builder.build();
+            let _ = tauri::WebviewWindowBuilder::new(app, "main", url).build();
             Ok(())
         })
         .run(tauri::generate_context!())

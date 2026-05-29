@@ -119,7 +119,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path out | Out-Null
-          Get-ChildItem -Path pake-src -Recurse -Include *.exe,*.msi | Copy-Item -Destination out
+          Get-ChildItem -Path pake-src -Recurse -Include *.exe,*.msi | Where-Object { $_.FullName -notlike "*node_modules*" } | Copy-Item -Destination out
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
@@ -259,6 +259,8 @@ jobs:
       - name: Install pnpm
         run: npm install -g pnpm
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios-sim
       - name: Download custom icon
         if: inputs.icon_url != ''
         run: curl -L -o app_icon.png "${{ inputs.icon_url }}"
@@ -280,11 +282,19 @@ jobs:
           CODE_SIGN_IDENTITY: ""
         run: |
           pnpm exec tauri ios init --ci
-          pnpm exec tauri ios build --ci -- CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+          pnpm exec tauri ios build --ci --target aarch64-apple-ios-sim -- CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
       - name: Collect iOS artifacts
         run: |
           mkdir -p out
-          find pake-src -type f \( -name '*.ipa' -o -name '*.app' \) | head -n 20 | while read f; do cp -R "$f" out/; done
+          find pake-src -name '*.app' -type d -exec cp -R {} out/ \; 2>/dev/null || true
+          find pake-src -name '*.ipa' -type f -exec cp {} out/ \; 2>/dev/null || true
+          cd out
+          for d in *.app; do
+            if [ -d "$d" ]; then
+              zip -r "${d}.zip" "$d"
+              rm -rf "$d"
+            fi
+          done
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
