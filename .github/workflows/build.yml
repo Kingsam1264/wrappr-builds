@@ -30,52 +30,187 @@ on:
         default: com.wrappr.app
 
 jobs:
-  build-macos:
-    if: contains(inputs.platforms, 'macos')
-    runs-on: macos-latest
+  build-linux:
+    if: contains(inputs.platforms, 'linux')
+    runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: tw93/Pake
+          path: pake-src
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm install -g pake-cli
-      - run: pake "${{ inputs.url }}" --name "${{ inputs.app_name }}" --identifier "${{ inputs.bundle_id }}"
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Pake CLI
+        run: npm install -g pnpm pake-cli
+      - name: Patch Pake config
+        run: node scripts/gh-patch-pake.mjs pake-src "${{ inputs.url }}" "${{ inputs.app_name }}" "${{ inputs.bundle_id }}"
+      - name: Build Linux app
+        working-directory: pake-src
+        run: pnpm install && pake "${{ inputs.url }}" --name "${{ inputs.app_name }}" --identifier "${{ inputs.bundle_id }}" --targets deb,appimage
+      - name: Collect Linux artifacts
+        run: |
+          mkdir -p out
+          find pake-src -maxdepth 3 \( -name '*.deb' -o -name '*.AppImage' \) -exec cp {} out/ \;
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.job_id }}-macos
-          path: "*.dmg"
+          name: ${{ inputs.job_id }}-linux
           retention-days: 1
+          path: out/
 
   build-windows:
     if: contains(inputs.platforms, 'windows')
     runs-on: windows-latest
+    continue-on-error: true
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: tw93/Pake
+          path: pake-src
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm install -g pake-cli
-      - run: pake "${{ inputs.url }}" --name "${{ inputs.app_name }}" --identifier "${{ inputs.bundle_id }}"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Pake CLI
+        run: npm install -g pnpm pake-cli
+      - name: Patch Pake config
+        run: node scripts/gh-patch-pake.mjs pake-src "${{ inputs.url }}" "${{ inputs.app_name }}" "${{ inputs.bundle_id }}"
+      - name: Build Windows app
+        working-directory: pake-src
+        shell: pwsh
+        run: pnpm install; pake "${{ inputs.url }}" --name "${{ inputs.app_name }}" --identifier "${{ inputs.bundle_id }}"
+      - name: Collect Windows artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path out | Out-Null
+          Get-ChildItem -Path pake-src -Recurse -Include *.exe,*.msi | Copy-Item -Destination out
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.job_id }}-windows
-          path: |
-            *.exe
-            *.msi
           retention-days: 1
+          path: out/
 
-  build-linux:
-    if: contains(inputs.platforms, 'linux')
-    runs-on: ubuntu-latest
+  build-macos:
+    if: contains(inputs.platforms, 'macos')
+    runs-on: macos-latest
+    continue-on-error: true
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: tw93/Pake
+          path: pake-src
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm install -g pake-cli
-      - run: pake "${{ inputs.url }}" --name "${{ inputs.app_name }}" --identifier "${{ inputs.bundle_id }}"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Pake CLI
+        run: npm install -g pnpm pake-cli
+      - name: Patch Pake config
+        run: node scripts/gh-patch-pake.mjs pake-src "${{ inputs.url }}" "${{ inputs.app_name }}" "${{ inputs.bundle_id }}"
+      - name: Build macOS app
+        working-directory: pake-src
+        run: pnpm install && pake "${{ inputs.url }}" --name "${{ inputs.app_name }}" --identifier "${{ inputs.bundle_id }}" --targets dmg
+      - name: Collect macOS artifacts
+        run: |
+          mkdir -p out
+          find pake-src -maxdepth 3 -name '*.dmg' -exec cp {} out/ \;
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.job_id }}-linux
-          path: |
-            *.deb
-            *.AppImage
+          name: ${{ inputs.job_id }}-macos
           retention-days: 1
+          path: out/
 
+  build-android:
+    if: contains(inputs.platforms, 'android')
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: tw93/Pake
+          path: pake-src
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Add Android Rust targets
+        run: |
+          rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android
+      - name: Setup NDK
+        id: ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26d
+          local-cache: true
+      - name: Patch Pake config
+        run: node scripts/gh-patch-pake.mjs pake-src "${{ inputs.url }}" "${{ inputs.app_name }}" "${{ inputs.bundle_id }}"
+      - name: Build Android APK
+        working-directory: pake-src
+        env:
+          NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+          CI: true
+        run: |
+          pnpm install
+          pnpm exec tauri android init --ci
+          pnpm exec tauri android build
+      - name: Collect Android artifacts
+        run: |
+          mkdir -p out
+          find pake-src -type f \( -name '*.apk' -o -name '*.aab' \) -exec cp {} out/ \;
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.job_id }}-android
+          retention-days: 1
+          path: out/
+
+  build-ios:
+    if: contains(inputs.platforms, 'ios')
+    runs-on: macos-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: tw93/Pake
+          path: pake-src
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Patch Pake config
+        run: node scripts/gh-patch-pake.mjs pake-src "${{ inputs.url }}" "${{ inputs.app_name }}" "${{ inputs.bundle_id }}"
+      - name: Build iOS (simulator IPA)
+        working-directory: pake-src
+        env:
+          CI: true
+        run: |
+          pnpm install
+          pnpm exec tauri ios init --ci
+          pnpm exec tauri ios build --ci
+      - name: Collect iOS artifacts
+        run: |
+          mkdir -p out
+          find pake-src -type f \( -name '*.ipa' -o -name '*.app' \) | head -n 20 | while read f; do cp -R "$f" out/; done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.job_id }}-ios
+          retention-days: 1
+          path: out/
