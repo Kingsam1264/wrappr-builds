@@ -231,7 +231,30 @@ jobs:
       - name: Collect Android artifacts
         run: |
           mkdir -p out
-          find pake-src -type f \( -name '*.apk' -o -name '*.aab' \) -exec cp {} out/ \;
+          
+          # Find the unsigned APK and release AAB
+          unsigned_apk=$(find pake-src -type f -name '*release-unsigned.apk' | head -n 1)
+          release_aab=$(find pake-src -type f -name '*release.aab' | head -n 1)
+          
+          if [ -n "$unsigned_apk" ]; then
+            echo "Generating keystore..."
+            keytool -genkey -v -keystore release.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+            
+            echo "Locating apksigner..."
+            sdk_path=${ANDROID_HOME:-/usr/local/lib/android/sdk}
+            apksigner_path=$(find $sdk_path/build-tools -name apksigner | sort -V | tail -n 1)
+            
+            echo "Signing APK..."
+            $apksigner_path sign --ks release.keystore --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android --out "out/${{ inputs.app_name }}.apk" "$unsigned_apk"
+            echo "Signed APK created at out/${{ inputs.app_name }}.apk"
+          else
+            echo "Error: Unsigned APK not found!"
+          fi
+          
+          if [ -n "$release_aab" ]; then
+            cp "$release_aab" "out/${{ inputs.app_name }}.aab"
+            echo "Copied AAB to out/${{ inputs.app_name }}.aab"
+          fi
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
@@ -282,7 +305,7 @@ jobs:
           CODE_SIGN_IDENTITY: ""
         run: |
           pnpm exec tauri ios init --ci
-          pnpm exec tauri ios build --ci --target aarch64-apple-ios-sim -- CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+          pnpm exec tauri ios build --ci --target aarch64-sim -- CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
       - name: Collect iOS artifacts
         run: |
           mkdir -p out

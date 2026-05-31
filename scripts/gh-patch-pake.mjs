@@ -79,4 +79,97 @@ pub fn run() {
   console.log('Patched Pake src-tauri/src/lib.rs for mobile compatibility.');
 }
 
+const injectPaths = [
+  path.join(pakeRoot, 'src-tauri', 'inject', 'custom.js'),
+  path.join(pakeRoot, 'src-tauri', 'src', 'inject', 'custom.js')
+];
+
+let customJsPath = null;
+for (const p of injectPaths) {
+  if (fs.existsSync(p)) {
+    customJsPath = p;
+    break;
+  }
+}
+
+if (customJsPath) {
+  const adBlockCode = `
+// Wrappr Adblocker Integration
+(function() {
+  const adSelectors = [
+    '.ad-container', '.ad-wrapper', '.adsbygoogle', '[id^="google_ads_"]',
+    'iframe[src*="googleads"]', 'iframe[src*="doubleclick"]',
+    '.ad-box', '.ad-banner', '.advertisement', '[class*="advertisement"]',
+    'a[href*="googleadservices.com"]', '[data-ad-client]', '[data-ad-slot]'
+  ];
+
+  function hideAds() {
+    adSelectors.forEach(selector => {
+      document.querySelectorAll(selector).forEach(el => {
+        el.style.setProperty('display', 'none', 'important');
+        el.style.setProperty('opacity', '0', 'important');
+        el.style.setProperty('pointer-events', 'none', 'important');
+        el.style.setProperty('height', '0', 'important');
+        el.style.setProperty('width', '0', 'important');
+      });
+    });
+  }
+
+  hideAds();
+  window.addEventListener('DOMContentLoaded', hideAds);
+  window.addEventListener('load', hideAds);
+  
+  const observer = new MutationObserver(hideAds);
+  observer.observe(document.documentElement, {
+    childList: true,
+    subtree: true
+  });
+
+  const adBlockDomains = [
+    'googleads.g.doubleclick.net',
+    'googlesyndication.com',
+    'google-analytics.com',
+    'pagead2.googlesyndication.com',
+    'adservice.google.com',
+    'doubleclick.net',
+    'partner.googleadservices.com',
+    'ads.pubmatic.com',
+    'securepubads.g.doubleclick.net',
+    'adnxs.com',
+    'criteo.com',
+    'amazon-adsystem.com'
+  ];
+
+  function isAdUrl(url) {
+    if (!url) return false;
+    const urlString = String(url).toLowerCase();
+    return adBlockDomains.some(domain => urlString.includes(domain));
+  }
+
+  if (window.fetch) {
+    const originalFetch = window.fetch;
+    window.fetch = function(input, init) {
+      const url = typeof input === 'string' ? input : (input?.url || '');
+      if (isAdUrl(url)) {
+        return Promise.reject(new TypeError('Ad blocked by Wrappr'));
+      }
+      return originalFetch.apply(this, arguments);
+    };
+  }
+
+  const originalOpen = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function(method, url) {
+    if (isAdUrl(url)) {
+      this.send = function() {};
+      this.setRequestHeader = function() {};
+      return;
+    }
+    return originalOpen.apply(this, arguments);
+  };
+})();
+`;
+  fs.appendFileSync(customJsPath, adBlockCode, 'utf8');
+  console.log('Integrated Wrappr Adblocker into Pake custom.js.');
+}
+
 console.log(`Patched Pake config: url=${url} app=${appName} id=${bundleId}`);
